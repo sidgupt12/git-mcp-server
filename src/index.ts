@@ -195,6 +195,47 @@ server.tool(
   }
 );
 
+//Tool: To comment on a PR
+server.tool(
+  "comment-on-pr",
+  {
+    owner: z.string().describe("Repository owner"),
+    repo: z.string().describe("Repository name"),
+    prNumber: z.number().describe("Pull request number"),
+    comment: z.string().describe("Comment text to post"),
+  },
+  async ({ owner, repo, prNumber, comment }) => {
+    try {
+      const response = await octokit.request("POST /repos/{owner}/{repo}/issues/{issue_number}/comments", {
+        owner,
+        repo,
+        issue_number: prNumber, // PRs are issues in GitHub's API
+        body: comment,
+      });
+      
+      return {
+        content: [
+          {
+            type: "text",
+            text: `✅ Comment posted on PR #${prNumber}: "${comment.substring(0, 50)}${comment.length > 50 ? '...' : ''}"`,
+          },
+        ],
+      };
+    } catch (error) {
+      console.error("Error posting comment:", error);
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Error posting comment: ${(error as Error).message}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+);
+
 // Start the server with stdio transport
 async function startServer() {
   const transport = new StdioServerTransport();
