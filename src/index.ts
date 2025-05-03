@@ -420,6 +420,76 @@ server.tool(
   }
 );
 
+// Tool: Close a PR (reject without merging)
+server.tool(
+  "close-pr",
+  {
+    owner: z.string().describe("Repository owner"),
+    repo: z.string().describe("Repository name"),
+    prNumber: z.number().describe("Pull request number"),
+    reason: z.string().optional().describe("Optional reason for closing the PR"),
+  },
+  async ({ owner, repo, prNumber, reason }) => {
+    try {
+      // First, check the current PR state
+      const prResponse = await octokit.request("GET /repos/{owner}/{repo}/pulls/{pull_number}", {
+        owner,
+        repo,
+        pull_number: prNumber,
+      });
+      
+      if (prResponse.data.state !== "open") {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `PR #${prNumber} is already ${prResponse.data.state}. No action taken.`,
+            },
+          ],
+        };
+      }
+      
+      // Close the PR using the issues endpoint (PRs are issues in GitHub's API)
+      await octokit.request("PATCH /repos/{owner}/{repo}/issues/{issue_number}", {
+        owner,
+        repo,
+        issue_number: prNumber,
+        state: "closed",
+      });
+      
+      // If a reason is provided, add it as a comment
+      if (reason) {
+        await octokit.request("POST /repos/{owner}/{repo}/issues/{issue_number}/comments", {
+          owner,
+          repo,
+          issue_number: prNumber,
+          body: `Closing this PR: ${reason}`,
+        });
+      }
+      
+      return {
+        content: [
+          {
+            type: "text",
+            text: `✅ PR #${prNumber} has been closed${reason ? ` with reason: ${reason}` : ""}.`,
+          },
+        ],
+      };
+    } catch (error) {
+      console.error("Error closing PR:", error);
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Error closing PR: ${(error as Error).message}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+);
+
 // Start the server with stdio transport
 async function startServer() {
   const transport = new StdioServerTransport();
