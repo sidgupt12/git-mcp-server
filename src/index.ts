@@ -8,7 +8,7 @@ const octokit = new Octokit({ auth: process.env.GITHUB_PERSONAL_ACCESS_TOKEN });
 
 // Create MCP server
 const server = new McpServer({
-  name: "GitHub PR Server",
+  name: "Claude GitHub MCP Server", 
   version: "1.0.0",
 });
 
@@ -501,3 +501,5 @@ startServer().catch((err) => {
   console.error("Failed to start server:", err);
   process.exit(1);
 });
+
+

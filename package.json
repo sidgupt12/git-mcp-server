@@ -1,17 +1,35 @@
 {
-  "name": "testmcp",
+  "name": "claude-github-mcp",
   "version": "1.0.0",
-  "description": "Test MCP implementation",
+  "description": "GitHub MCP Server for Claude Desktop Integration",
   "type": "module",
   "main": "dist/index.js",
+  "bin": {
+    "claude-github-mcp": "./bin/claude-github-mcp.js"
+  },
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
-    "dev": "ts-node --esm src/index.ts"
+    "dev": "ts-node --esm src/index.ts",
+    "prepublishOnly": "npm run build"
   },
+  "files": [
+    "dist",
+    "bin"
+  ],
+  "keywords": [
+    "github",
+    "mcp",
+    "claude"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.9.0",
     "@octokit/rest": "^21.1.1",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
     "@types/node": "^22.14.1",
     "ts-node": "^10.9.2",
     "typescript": "^5.8.3"
