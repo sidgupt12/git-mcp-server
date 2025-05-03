@@ -147,7 +147,7 @@ server.tool(
   }
 );
 
-// New tool: List all PRs in a repository
+//tool: List all PRs in a repository
 server.tool(
   "list-prs",
   {
@@ -228,6 +228,190 @@ server.tool(
           {
             type: "text",
             text: `Error posting comment: ${(error as Error).message}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+);
+
+// Tool: Request reviewers for a PR
+server.tool(
+  "request-reviewers",
+  {
+    owner: z.string().describe("Repository owner"),
+    repo: z.string().describe("Repository name"),
+    prNumber: z.number().describe("Pull request number"),
+    reviewers: z.array(z.string()).describe("GitHub usernames to request as reviewers"),
+  },
+  async ({ owner, repo, prNumber, reviewers }) => {
+    try {
+      const response = await octokit.request("POST /repos/{owner}/{repo}/pulls/{pull_number}/requested_reviewers", {
+        owner,
+        repo,
+        pull_number: prNumber,
+        reviewers,
+      });
+      
+      return {
+        content: [
+          {
+            type: "text",
+            text: `✅ Requested ${reviewers.length} reviewer(s) for PR #${prNumber}: ${reviewers.join(", ")}`,
+          },
+        ],
+      };
+    } catch (error) {
+      console.error("Error requesting reviewers:", error);
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Error requesting reviewers: ${(error as Error).message}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+);
+
+// Tool: Merge a PR
+server.tool(
+  "merge-pr",
+  {
+    owner: z.string().describe("Repository owner"),
+    repo: z.string().describe("Repository name"),
+    prNumber: z.number().describe("Pull request number"),
+    commitTitle: z.string().optional().describe("Optional title for the merge commit"),
+    commitMessage: z.string().optional().describe("Optional message for the merge commit"),
+  },
+  async ({ owner, repo, prNumber, commitTitle, commitMessage }) => {
+    try {
+      // First, check if PR is mergeable
+      const prResponse = await octokit.request("GET /repos/{owner}/{repo}/pulls/{pull_number}", {
+        owner,
+        repo,
+        pull_number: prNumber,
+      });
+      
+      if (!prResponse.data.mergeable) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `⚠️ PR #${prNumber} is not mergeable. It may have conflicts that need to be resolved.`,
+            },
+          ],
+        };
+      }
+      
+      // If mergeable, perform the merge
+      const mergeResponse = await octokit.request("PUT /repos/{owner}/{repo}/pulls/{pull_number}/merge", {
+        owner,
+        repo,
+        pull_number: prNumber,
+        commit_title: commitTitle,
+        commit_message: commitMessage,
+        merge_method: "merge",
+      });
+      
+      return {
+        content: [
+          {
+            type: "text",
+            text: `✅ Successfully merged PR #${prNumber}!`,
+          },
+        ],
+      };
+    } catch (error) {      
+      console.error("Error merging PR:", error);
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Error merging PR: ${(error as Error).message}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+);          
+
+// Tool: Summarize PR changes
+server.tool(
+  "summarize-pr",
+  {
+    owner: z.string().describe("Repository owner"),
+    repo: z.string().describe("Repository name"),
+    prNumber: z.number().describe("Pull request number"),
+  },
+  async ({ owner, repo, prNumber }) => {
+    try {
+      // Get PR details
+      const prResponse = await octokit.request("GET /repos/{owner}/{repo}/pulls/{pull_number}", {
+        owner,
+        repo,
+        pull_number: prNumber,
+      });
+      
+      const pr = prResponse.data;
+      
+      // Get PR files
+      const filesResponse = await octokit.request("GET /repos/{owner}/{repo}/pulls/{pull_number}/files", {
+        owner,
+        repo,
+        pull_number: prNumber,
+      });
+      
+      const files = filesResponse.data;
+      
+      // Prepare a summary of the changes
+      const fileChanges = files.map(file => ({
+        filename: file.filename,
+        status: file.status, // added, modified, removed
+        additions: file.additions,
+        deletions: file.deletions,
+        changes: file.changes,
+        patch: file.patch?.substring(0, 500) // Truncate patch for readability
+      }));
+      
+      // Format a summary for Claude to explain
+      const summary = {
+        title: pr.title,
+        description: pr.body || "No description provided",
+        changedFiles: files.length,
+        totalAdditions: files.reduce((sum, file) => sum + file.additions, 0),
+        totalDeletions: files.reduce((sum, file) => sum + file.deletions, 0),
+        files: fileChanges
+      };
+      
+      return {
+        content: [
+          {
+            type: "text",
+            text: `# PR #${prNumber} Summary\n\n` +
+                  `**Title**: ${summary.title}\n\n` +
+                  `**Description**:\n${summary.description}\n\n` +
+                  `**Changes**: ${summary.changedFiles} files changed, ` +
+                  `${summary.totalAdditions} additions, ${summary.totalDeletions} deletions\n\n` +
+                  `## Modified Files\n\n` +
+                  files.map(file => 
+                    `- **${file.filename}** (${file.status}): +${file.additions} -${file.deletions}\n` +
+                    (file.patch ? `\`\`\`diff\n${file.patch.substring(0, 300)}${file.patch.length > 300 ? '...' : ''}\n\`\`\`\n` : '')
+                  ).join('\n\n')
+          },
+        ],
+      };
+    } catch (error) {
+      console.error("Error summarizing PR:", error);
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Error summarizing PR: ${(error as Error).message}`,
           },
         ],
         isError: true,
