@@ -22,7 +22,7 @@
     "mcp",
     "claude"
   ],
-  "author": "Your Name",
+  "author": "Siddhant Gupta",
   "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.9.0",

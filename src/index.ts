@@ -490,6 +490,252 @@ server.tool(
   }
 );
 
+// Tool: Create a new GitHub repository with initial files
+server.tool(
+  "create-repository",
+  {
+    owner: z.string().optional().describe("GitHub username (defaults to authenticated user)"),
+    name: z.string().describe("Name of the repository to create"),
+    description: z.string().optional().describe("Optional description for the repository"),
+    private: z.boolean().default(false).describe("Whether the repository should be private"),
+    files: z.array(
+      z.object({
+        path: z.string().describe("File path including name (e.g. 'README.md' or 'src/index.js')"),
+        content: z.string().describe("Content of the file"),
+      })
+    ).optional().describe("Initial files to create in the repository"),
+    initializeWithReadme: z.boolean().default(true).describe("Whether to initialize with a README")
+  },
+  async ({ owner, name, description, private: isPrivate, files, initializeWithReadme }) => {
+    try {
+      // First, create the repository
+      const createParams: {
+        name: string;
+        description?: string;
+        private: boolean;
+        auto_init: boolean;
+        owner?: string;
+      } = {
+        name,
+        description: description || "",
+        private: isPrivate,
+        auto_init: initializeWithReadme,
+      };
+      
+      // Use user endpoint if owner isn't specified, or org endpoint if it is
+      let createRepoResponse;
+      if (!owner) {
+        createRepoResponse = await octokit.request("POST /user/repos", createParams);
+      } else {
+        createRepoResponse = await octokit.request("POST /orgs/{org}/repos", {
+          org: owner,
+          ...createParams
+        });
+      }
+      
+      const repoData = createRepoResponse.data;
+      const repoOwner = repoData.owner.login;
+      const repo = repoData.name;
+      const defaultBranch = repoData.default_branch;
+      
+      // If no files provided and we initialized with README, we're done
+      if ((!files || files.length === 0) && initializeWithReadme) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `✅ Repository created successfully!\n\nName: ${name}\nOwner: ${repoOwner}\nVisibility: ${isPrivate ? 'Private' : 'Public'}\nURL: ${repoData.html_url}\n\nInitialized with README.md`
+            },
+          ],
+        };
+      }
+      
+      // If files were provided, we need to create them
+      if (files && files.length > 0) {
+        // First, we need to get the SHA of the latest commit on the default branch
+        const refResponse = await octokit.request("GET /repos/{owner}/{repo}/git/ref/{ref}", {
+          owner: repoOwner,
+          repo,
+          ref: `heads/${defaultBranch}`,
+        });
+        
+        const latestCommitSha = refResponse.data.object.sha;
+        
+        // Create blobs for all files
+        const blobResults = await Promise.all(
+          files.map(file => 
+            octokit.request("POST /repos/{owner}/{repo}/git/blobs", {
+              owner: repoOwner,
+              repo,
+              content: Buffer.from(file.content).toString('base64'),
+              encoding: "base64",
+            })
+          )
+        );
+        
+        // Get the current tree
+        const treeResponse = await octokit.request("GET /repos/{owner}/{repo}/git/trees/{tree_sha}", {
+          owner: repoOwner,
+          repo,
+          tree_sha: latestCommitSha,
+          recursive: "true",
+        });
+        
+        // Create a new tree with the new files
+        const treeItems = files.map((file, i) => ({
+          path: file.path,
+          mode: "100644" as const, // Regular file
+          type: "blob" as const,
+          sha: blobResults[i].data.sha,
+        }));
+        
+        const newTree = await octokit.request("POST /repos/{owner}/{repo}/git/trees", {
+          owner: repoOwner,
+          repo,
+          base_tree: treeResponse.data.sha,
+          tree: treeItems,
+        });
+        
+        // Create a new commit
+        const commitResponse = await octokit.request("POST /repos/{owner}/{repo}/git/commits", {
+          owner: repoOwner,
+          repo,
+          message: "Add initial files",
+          tree: newTree.data.sha,
+          parents: [latestCommitSha],
+        });
+        
+        // Update the reference to point to the new commit
+        await octokit.request("PATCH /repos/{owner}/{repo}/git/refs/{ref}", {
+          owner: repoOwner,
+          repo,
+          ref: `heads/${defaultBranch}`,
+          sha: commitResponse.data.sha,
+        });
+        
+        const fileList = files.map(f => `- ${f.path}`).join('\n');
+        
+        return {
+          content: [
+            {
+              type: "text",
+              text: `✅ Repository created successfully!\n\nName: ${name}\nOwner: ${repoOwner}\nVisibility: ${isPrivate ? 'Private' : 'Public'}\nURL: ${repoData.html_url}\n\nAdded ${files.length} files:\n${fileList}`
+            },
+          ],
+        };
+      }
+      
+      // Default response if no files were added and no README
+      return {
+        content: [
+          {
+            type: "text",
+            text: `✅ Repository created successfully!\n\nName: ${name}\nOwner: ${repoOwner}\nVisibility: ${isPrivate ? 'Private' : 'Public'}\nURL: ${repoData.html_url}`
+          },
+        ],
+      };
+      
+    } catch (error) {
+      console.error("Error creating repository:", error);
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Error creating repository: ${(error as Error).message}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+);
+
+// Tool: Delete a GitHub repository
+server.tool(
+  "delete-repository",
+  {
+    owner: z.string().describe("Repository owner"),
+    repo: z.string().describe("Repository name"),
+    confirmation: z.boolean().describe("Confirmation to delete (must be true)")
+  },
+  async ({ owner, repo, confirmation }) => {
+    try {
+      // Safety check - require explicit confirmation
+      if (!confirmation) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: "⚠️ Repository deletion aborted. The 'confirmation' parameter must be set to true to proceed with deletion."
+            }
+          ],
+        };
+      }
+      
+      // Check if repository exists first
+      try {
+        await octokit.request("GET /repos/{owner}/{repo}", {
+          owner,
+          repo
+        });
+      } catch (error) {
+        if ((error as any).status === 404) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `⚠️ Repository ${owner}/${repo} does not exist or you don't have access to it.`
+              }
+            ],
+            isError: true
+          };
+        }
+        throw error;
+      }
+      
+      // Perform the deletion
+      await octokit.request("DELETE /repos/{owner}/{repo}", {
+        owner,
+        repo
+      });
+      
+      return {
+        content: [
+          {
+            type: "text",
+            text: `🗑️ Repository ${owner}/${repo} has been successfully deleted.`
+          }
+        ]
+      };
+    } catch (error) {
+      console.error("Error deleting repository:", error);
+      
+      // Provide more specific error messages for common issues
+      let errorMessage = `Error deleting repository: ${(error as Error).message}`;
+      
+      if ((error as any).status === 403) {
+        errorMessage = `You don't have permission to delete the repository ${owner}/${repo}. Make sure your GitHub token has the necessary permissions.`;
+      } else if ((error as any).status === 404) {
+        errorMessage = `Repository ${owner}/${repo} not found. It may have already been deleted or you might not have access to it.`;
+      } else if ((error as any).status === 401) {
+        errorMessage = "Authentication failed. Check your GitHub token.";
+      }
+      
+      return {
+        content: [
+          {
+            type: "text",
+            text: errorMessage
+          }
+        ],
+        isError: true
+      };
+    }
+  }
+);
+
+
+
 // Start the server with stdio transport
 async function startServer() {
   const transport = new StdioServerTransport();
