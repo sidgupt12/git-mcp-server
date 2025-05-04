@@ -1,6 +1,6 @@
 # Claude GitHub MCP Server
 
-A GitHub MCP Server for Claude Desktop that gives Claude the ability to interact with GitHub pull requests.
+A GitHub MCP Server for Claude Desktop that gives Claude the ability to interact with GitHub repository.
 
 <details>
 <summary>Here's the JSON to copy</summary>
@@ -35,7 +35,8 @@ npm install -g claude-github-mcp
 - Merge pull requests
 - Summarize PR changes with diff highlighting
 - Close/reject PRs with optional comments
-- View PR test/CI status
+- Create new repository
+- Delete existing repository
 
 ### Usage
 
@@ -46,6 +47,8 @@ npm install -g claude-github-mcp
 - `"Request alice and bob as reviewers for PR #42 in owner/repo"`
 - `"Merge PR #101 in owner/repo"`
 - `"Close PR #202 in owner/repo with reason 'This approach won't work'"`
+- `"Create a repo named test with files xyz and content 'test file'"`
+- `"Delete this repo 'repo link'"`
 
 **Available Commands**
 
@@ -56,7 +59,8 @@ npm install -g claude-github-mcp
 - `request-reviewers`: Requests reviewers for a PR  
 - `merge-pr`: Merges a PR  
 - `close-pr`: Closes/rejects a PR  
-- `check-ci-status`: Checks CI/test status of a PR
+- `create-repository`: Creates a new repository
+- `delete-repository`: Deletes an existing repository
 
 ### Requirements
 - Node.js 16+
