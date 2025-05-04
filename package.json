@@ -1,6 +1,6 @@
 {
   "name": "claude-github-mcp",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "GitHub MCP Server for Claude Desktop Integration",
   "type": "module",
   "main": "dist/index.js",
